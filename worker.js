@@ -1,7 +1,7 @@
-const BOT_TOKEN = '8186020934:AAHvpqnVrcLF-WBdnDi5iVWLAPQGLlGovF4';  // Replace with your token from BotFather
+const BOT_TOKEN = '8186020934:AAHvpqnVrcLF-WBdnDi5iVWLAPQGLlGovF4';
 const API_URL = `https://api.telegram.org/bot${BOT_TOKEN}`;
 const BASE_URL = 'https://drlabapis.onrender.com/api';
-const CHANNEL_URL = 'https://t.me/yourchannel';  // Replace with your actual Telegram channel URL
+const CHANNEL_URL = 'https://t.me/yourchannel'; // Set your channel URL
 
 addEventListener('fetch', event => {
     event.respondWith(handleRequest(event.request));
@@ -10,27 +10,21 @@ addEventListener('fetch', event => {
 async function fetchBinInfo(bin) {
     const url = `${BASE_URL}/bin?bin=${bin}`;
     const response = await fetch(url);
-    if (!response.ok) {
-        throw new Error('BIN API request failed');
-    }
+    if (!response.ok) throw new Error('BIN API request failed');
     return response.json();
 }
 
 async function fetchGeneratedCCs(bin, count = 10) {
     const url = `${BASE_URL}/ccgenerator?bin=${bin}&count=${count}`;
     const response = await fetch(url);
-    if (!response.ok) {
-        throw new Error('CC Generator API request failed');
-    }
-    return response.json();  // Assuming response is JSON with 'cards' array or similar; adjust based on actual structure
+    if (!response.ok) throw new Error('CC Generator API request failed');
+    return response.json();
 }
 
 async function fetchIpInfo(ip) {
     const url = `${BASE_URL}/iplookup/?ip=${ip}`;
     const response = await fetch(url);
-    if (!response.ok) {
-        throw new Error('IP Lookup API request failed');
-    }
+    if (!response.ok) throw new Error('IP Lookup API request failed');
     return response.json();
 }
 
@@ -38,14 +32,13 @@ async function handleRequest(request) {
     if (request.method !== 'POST') {
         return new Response('Not a POST request', { status: 405 });
     }
-
     try {
         const update = await request.json();
         const chatId = update.message?.chat?.id;
         const text = update.message?.text?.trim();
 
         if (chatId && text) {
-            let reply = 'Use /bin or !bin followed by a 6-digit BIN (e.g., /bin 123456), /gen BIN [COUNT] to generate CCs, /ip IP to lookup IP info, or /start for info.';
+            let reply = 'Unknown command. Use `/start` for help.';
             let replyMarkup = null;
 
             if (text === '/start') {
@@ -57,8 +50,14 @@ async function handleRequest(request) {
                         { text: 'Join Channel', url: CHANNEL_URL }
                     ]]
                 };
+            } else if (/^[!\/.]bin$/i.test(text)) {
+                reply = 'Please send BIN in format: `/bin 123456` (6 digits).';
+            } else if (/^[!\/.]gen$/i.test(text)) {
+                reply = 'Please send BIN or BIN set in format: `/gen 4548531 [COUNT]` or `/gen 4548531|10|2025 [COUNT]`.';
+            } else if (/^[!\/.]ip$/i.test(text)) {
+                reply = 'Please send IP in format: `/ip 117.40.32.135` (example: IPv4 or IPv6 address).';
             } else {
-                // Check for /bin or !bin command
+                // Existing command handling...
                 const binMatch = text.match(/^[!\/]bin\s*(\d{6})$/i);
                 if (binMatch) {
                     const bin = binMatch[1];
@@ -72,52 +71,40 @@ async function handleRequest(request) {
                                     `Country: ${binInfo.country}\n` +
                                     `Issuer: ${binInfo.issuer}`;
                         } else {
-                            reply = `BIN info unavailable for ${bin}. Details: ${JSON.stringify(binInfo)}`;
+                            reply = `BIN info unavailable for ${bin}.`;
                         }
                     } catch (error) {
-                        reply = `Error fetching BIN info for ${bin}. Try again later.`;
+                        reply = `Error fetching BIN info for ${bin}.`;
                     }
                 }
-
-                // Check for /gen, !gen, or .gen command
                 const genMatch = text.match(/^[!\/.]gen\s+(\S+)(?:\s+(\d+))?$/i);
                 if (genMatch) {
-                    const bin = genMatch[1];  // Can include formats like 4548531|10|2025
+                    const bin = genMatch[1];
                     const count = parseInt(genMatch[2] || '10', 10);
                     try {
-                        // Fetch BIN lookup (use first 6 digits for /bin endpoint)
                         const binPrefix = bin.slice(0, 6);
                         const binInfo = await fetchBinInfo(binPrefix);
-
-                        // Fetch generated CCs
                         const genResponse = await fetchGeneratedCCs(bin, count);
-                        // Assuming genResponse is {status: 'ok', cards: ['cc1', 'cc2', ...]}; adjust if different
                         if (genResponse.status === 'ok' && genResponse.cards?.length) {
                             const ccs = genResponse.cards.join('\n');
                             reply = `Generated ${count} CCs 💳\n\n` +
-                                    `BIN-LOOKUP\n` +
-                                    `BIN ➳ ${binPrefix}\n` +
+                                    `BIN-LOOKUP\nBIN ➳ ${binPrefix}\n` +
                                     `Country ➳ ${binInfo.country || 'Unavailable'}\n` +
                                     `Type ➳ ${binInfo.type || 'Unavailable'}\n` +
-                                    `Bank ➳ ${binInfo.issuer || 'Unavailable'}\n\n` +
-                                    `${ccs}`;
+                                    `Bank ➳ ${binInfo.issuer || 'Unavailable'}\n\n${ccs}`;
+                            replyMarkup = {
+                                inline_keyboard: [[
+                                    { text: 'Copy Generated CCs', callback_data: 'copy_ccs' }
+                                ]]
+                            };
                         } else {
-                            reply = `Failed to generate CCs for BIN ${bin}. Details: ${JSON.stringify(genResponse)}`;
+                            reply = `Failed to generate CCs for BIN ${bin}.`;
                         }
-
-                        // Add inline button for copy/paste
-                        replyMarkup = {
-                            inline_keyboard: [[
-                                { text: 'Copy Generated CCs', callback_data: 'copy_ccs' }
-                            ]]
-                        };
                     } catch (error) {
-                        reply = `Error generating CCs for BIN ${bin}. Try again later.`;
+                        reply = `Error generating CCs for BIN ${bin}.`;
                     }
                 }
-
-                // Check for /ip, !ip, or .ip command
-                const ipMatch = text.match(/^[!\/.]ip\s*([\d.]+)$/i);
+                const ipMatch = text.match(/^[!\/.]ip\s*([\\d.]+)$/i);
                 if (ipMatch) {
                     const ip = ipMatch[1];
                     try {
@@ -125,29 +112,15 @@ async function handleRequest(request) {
                         if (ipInfo.status === 'ok' && ipInfo.details) {
                             const details = ipInfo.details;
                             reply = `IP Lookup for ${ip}:\n\n` +
-                                    `Country: ${details.country}\n` +
-                                    `City: ${details.city}\n` +
-                                    `State: ${details.state}\n` +
-                                    `Continent: ${details.continent}\n` +
-                                    `ISP: ${details.isp}\n` +
-                                    `Organization: ${details.organization}\n` +
-                                    `ASN: ${details.asn_number}\n` +
-                                    `Timezone: ${details.timezone}\n` +
-                                    `Connection Type: ${details.connection_type}\n` +
-                                    `User Type: ${details.user_type}\n` +
-                                    `Latitude: ${details.latitude}\n` +
-                                    `Longitude: ${details.longitude}\n` +
-                                    `Map: ${details.map_link}`;
+                                    `Country: ${details.country}\nCity: ${details.city}\nState: ${details.state}\nContinent: ${details.continent}\nISP: ${details.isp}\nOrganization: ${details.organization}\nASN: ${details.asn_number}\nTimezone: ${details.timezone}\nConnection Type: ${details.connection_type}\nUser Type: ${details.user_type}\nLatitude: ${details.latitude}\nLongitude: ${details.longitude}\nMap: ${details.map_link}`;
                         } else {
-                            reply = `IP info unavailable for ${ip}. Details: ${JSON.stringify(ipInfo)}`;
+                            reply = `IP info unavailable for ${ip}.`;
                         }
                     } catch (error) {
-                        reply = `Error fetching IP info for ${ip}. Try again later.`;
+                        reply = `Error fetching IP info for ${ip}.`;
                     }
                 }
             }
-
-            // Send reply back to Telegram
             await fetch(`${API_URL}/sendMessage`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -158,7 +131,6 @@ async function handleRequest(request) {
                 })
             });
         }
-
         return new Response('OK', { status: 200 });
     } catch (error) {
         console.error(error);
